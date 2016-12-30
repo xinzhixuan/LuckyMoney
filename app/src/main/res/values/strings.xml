@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">WeixinUtils</string>
+    <string name="weixin_accessibility_description">微信辅助功能demo</string>
+</resources>
