@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">WeixinUtils</string>
-    <string name="weixin_accessibility_description">微信辅助功能demo</string>
+    <string name="app_name">LuckyMoney</string>
+    <string name="weixin_accessibility_description">微信抢红包辅助功能</string>
 </resources>
