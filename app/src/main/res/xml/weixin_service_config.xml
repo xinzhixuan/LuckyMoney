@@ -5,7 +5,7 @@
                        android:canRetrieveWindowContent="true"
                        android:description="@string/weixin_accessibility_description"
                        android:notificationTimeout="50"
-                       android:accessibilityFlags="flagDefault"
+                       android:accessibilityFlags="flagReportViewIds"
                        android:packageNames="com.tencent.mm"/>
 <!--typeAllMask是设置响应事件的类型，typeAllMask当然就是响应所有类型的事件-->
 <!--feedbackGeneric是设置回馈给用户的方式，有语音播出和振动。可以配置一些TTS引擎，让它实现发音。-->

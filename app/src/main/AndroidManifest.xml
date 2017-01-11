@@ -23,5 +23,4 @@
                     android:resource="@xml/weixin_service_config"/>
         </service>
     </application>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
 </manifest>
