@@ -9,9 +9,12 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.os.PowerManager;
 import android.util.Log;
+import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityRecord;
 
 import java.util.List;
 
@@ -19,6 +22,7 @@ import static android.view.accessibility.AccessibilityEvent.TYPE_NOTIFICATION_ST
 import static android.view.accessibility.AccessibilityEvent.TYPE_VIEW_CLICKED;
 import static android.view.accessibility.AccessibilityEvent.TYPE_VIEW_LONG_CLICKED;
 import static android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SCROLLED;
+import static android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED;
 import static android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED;
 import static android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
 
@@ -29,15 +33,32 @@ import static android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CH
 public class MyAccessibility extends AccessibilityService {
 
     private static final String TAG = MyAccessibility.class.getName();
-    private static final String IS_TAKE = "is_take";
-    private SharedPreferences sharedPreferences;
+    private boolean isTake = true;
+    private boolean hasLuckyMoney = false;
 
+
+    //锁屏、唤醒相关
+    private KeyguardManager keyguardManager;
+    private KeyguardManager.KeyguardLock mkeyguardLock;
+    private PowerManager powerManager;
+    private PowerManager.WakeLock mWakelock;
+    private boolean needSleep = false;
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        //获取电源管理器对象
+        powerManager = (PowerManager)getSystemService(Context.POWER_SERVICE);
+        //得到键盘锁管理器对象
+        keyguardManager = (KeyguardManager)getSystemService(Context.KEYGUARD_SERVICE);
+        //得到键盘锁管理器对象
+        mkeyguardLock = keyguardManager.newKeyguardLock("unLock");
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
-        sharedPreferences = getSharedPreferences("weixin_accessibility", MODE_PRIVATE);
-        sharedPreferences.edit().putBoolean(IS_TAKE, true).commit();
+        isTake = true;
     }
 
     @Override
@@ -48,6 +69,7 @@ public class MyAccessibility extends AccessibilityService {
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        Log.i(TAG, "====" + event.getEventType());
         int eventType = event.getEventType();
         switch (eventType) {
             case TYPE_VIEW_CLICKED:
@@ -65,18 +87,15 @@ public class MyAccessibility extends AccessibilityService {
                 break;
             case TYPE_VIEW_SCROLLED:
                 handleViewScrolled(event);
-                break;
+            break;
+
 
         }
     }
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
     private void handleViewScrolled(AccessibilityEvent event) {
-        Log.i(TAG, event.toString());
-        Log.i(TAG, event.getRecordCount() + "");
-        Log.i(TAG, event.getBeforeText() + "");
-        Log.i(TAG, event.getMovementGranularity() + "");
-        Log.i(TAG, event.getAddedCount() + "");
+
     }
 
     /**
@@ -85,7 +104,9 @@ public class MyAccessibility extends AccessibilityService {
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
     private boolean findMoney() {
         AccessibilityNodeInfo nodeInfo = getRootInActiveWindow();
-
+        while (nodeInfo == null) {
+            nodeInfo = getRootInActiveWindow();
+        }
         List<AccessibilityNodeInfo> weixinMoney = nodeInfo.findAccessibilityNodeInfosByText("领取红包");//""
         if (weixinMoney.size() > 0) {
             AccessibilityNodeInfo accessibilityNodeInfo = weixinMoney.get(weixinMoney.size() - 1);
@@ -95,17 +116,38 @@ public class MyAccessibility extends AccessibilityService {
         return false;
     }
 
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
     private void handleWindowChangeEvent(AccessibilityEvent event) {
-        boolean take = sharedPreferences.getBoolean(IS_TAKE, false);
-        if (take) {
+        //如果领了，直接没必要在页面查找红包
+        if (isTake) {
             return;
         }
-        boolean result = findMoney();
-        if (result) {
-            //找到红包了，所以返回，因为模拟点击触发，进入到另一个界面
+        if (findMoney()) {
+            Log.i(TAG, "classnme" + event.getClassName());
+            //找到红包了，所以返回，因为模拟点击后自动触发window_changed事件
+            hasLuckyMoney = true;
             return;
+        } else {
+            //返回到微信界面
+            if (!hasLuckyMoney) {
+                Log.i(TAG, "==============假红包==============");
+                isTake = true;
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+                if (needSleep) {
+
+                    releaseWakelock();
+                }
+            }
         }
-        take(event);
+        if (hasLuckyMoney) {
+            Log.i(TAG, "==============有红包==============");
+            take(event);
+        }
     }
 
     /**
@@ -120,7 +162,6 @@ public class MyAccessibility extends AccessibilityService {
         }
 
         List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByText("发了一个红包");
-        Log.i(TAG, "给你发了一个红包size()=" + list.size());
         if (list.size() > 0) {
             //说明当前页面是点“开”的页面
             int childCount = nodeInfo.getChildCount();
@@ -129,17 +170,52 @@ public class MyAccessibility extends AccessibilityService {
                     //每一个都点一下
                     click(nodeInfo.getChild(i));
                 }
-                sharedPreferences.edit().putBoolean(IS_TAKE, true).commit();
-                performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
-                try {
-                    //抢完等500hao毫秒退出聊天界面
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+                isTake = true;
+                //返回到微信界面
+                backToWeiXin();
             }
         }
+        //处理没有抢到红包的场景
+        list = nodeInfo.findAccessibilityNodeInfosByText("手慢了");
+        if (list.size() > 0) {
+            //手慢了，没有抢到，退出
+            isTake = true;
+            backToWeiXin();
+        }
+        //别人发了一个假红包，被引进入到了上个红包的红包领情查看详情页面，直接重新返回到微信页面
+        list = nodeInfo.findAccessibilityNodeInfosByText("红包详情");
+        if (list.size() > 0) {
+            //处理别人发了一个假红包｛微信红包四个字｝
+            isTake = true;
+            backToWeiXin();
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
+    private void backToWeiXin() {
+        hasLuckyMoney = false;
+        performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+        try {
+            //抢完等500hao毫秒退出聊天界面
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+        if (needSleep) {
+            releaseWakelock();
+        }
+    }
+
+
+    /**
+     * 释放亮屏操作
+     */
+    private void releaseWakelock() {
+        if (mWakelock != null) {
+            mWakelock.release();
+        }
+        needSleep = false;
     }
 
     private void click(AccessibilityNodeInfo nodeInfo) {
@@ -147,14 +223,29 @@ public class MyAccessibility extends AccessibilityService {
         nodeInfo.recycle();
     }
 
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
     private void handleNotificationEvent(AccessibilityEvent event) {
         List<CharSequence> texts = event.getText();
         Log.i(TAG, "======texts=======" + texts);
         boolean contains = texts.toString().contains("微信红包");
         if (contains) {
+            //1.点亮屏幕
+            Log.i(TAG, "screeOn=" + String.valueOf(powerManager.isScreenOn()));
+            if (!powerManager.isScreenOn()) {
+                mWakelock = powerManager.newWakeLock(PowerManager.ACQUIRE_CAUSES_WAKEUP
+                        | PowerManager.SCREEN_BRIGHT_WAKE_LOCK,"target"); // this target for tell OS which app
+                //点亮屏幕
+                mWakelock.acquire();
+                needSleep = true;
+            }
+            //2.解锁
+            if(keyguardManager.inKeyguardRestrictedInputMode()) {
+                mkeyguardLock.disableKeyguard();
+                Log.i(TAG, "解锁");
+            }
             Notification notification = (Notification) event.getParcelableData();
-            sharedPreferences.edit().putBoolean(IS_TAKE, false).commit();
             try {
+                isTake = false;
                 notification.contentIntent.send();
             } catch (PendingIntent.CanceledException e) {
                 e.printStackTrace();
@@ -181,18 +272,8 @@ public class MyAccessibility extends AccessibilityService {
         }
     }
 
-    /**
-     * 判断是否黑屏
-     * @param context
-     * @return
-     */
-    public final static boolean isScreenLocked(Context context) {
-        android.app.KeyguardManager mKeyguardManager = (KeyguardManager) context.getSystemService(context.KEYGUARD_SERVICE);
-        return !mKeyguardManager.inKeyguardRestrictedInputMode();
-    }
-
     @Override
     public void onInterrupt() {
-
+        Log.i(TAG, "发生yi8chang");
     }
 }
