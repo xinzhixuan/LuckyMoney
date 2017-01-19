@@ -1,2 +1,1 @@
-借助android辅助功能完成自定微信抢红包Demo（项目只实现基本功能）
-android:6.0
+借助android辅助功能完成自定微信抢红包Demo
